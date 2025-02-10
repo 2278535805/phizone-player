@@ -42,14 +42,12 @@ export class HitEffects extends GameObjects.Sprite {
   }
 
   particle(tint?: number) {
-    const particle = new GameObjects.Arc(
+    const particle = new GameObjects.Rectangle(
       this._scene,
       this.x,
       this.y,
-      this.scale * HIT_EFFECTS_PARTICLE_SIZE * Math.SQRT1_2,
-      undefined,
-      undefined,
-      undefined,
+      this.scaleX * HIT_EFFECTS_PARTICLE_SIZE,
+      this.scaleY * HIT_EFFECTS_PARTICLE_SIZE,
       tint ?? this._color,
     )
       .setOrigin(0.5)

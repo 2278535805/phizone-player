@@ -172,8 +172,8 @@ export class Game extends Scene {
 
     this.load.image('asset-line.png', 'line.png');
     this.load.spritesheet('hit-effects', 'HitEffects.png', {
-      frameWidth: 375,
-      frameHeight: 375,
+      frameWidth: 256,
+      frameHeight: 256,
     });
 
     const { song, chart, illustration, assetNames, assetTypes, assets } = this._data.resources;
@@ -618,7 +618,7 @@ export class Game extends Scene {
     this.anims.create({
       key: 'hit-effects',
       frames: 'hit-effects',
-      frameRate: 120,
+      frameRate: 60,
       repeat: 0,
     });
   }
