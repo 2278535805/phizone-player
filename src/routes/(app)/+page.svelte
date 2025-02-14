@@ -1,10 +1,11 @@
 <script lang="ts">
-  import JSZip from 'jszip';
+  import JSZip, { file } from 'jszip';
   import mime from 'mime/lite';
   import { onMount } from 'svelte';
   import queryString from 'query-string';
   import { fileTypeFromBlob } from 'file-type';
   import type {
+    BlobInputMessage,
     Config,
     IncomingMessage,
     Metadata,
@@ -13,6 +14,7 @@
     RecorderOptions,
     Release,
     RpeJson,
+    UrlInputMessage,
   } from '$lib/types';
   import {
     clamp,
@@ -24,6 +26,7 @@
     IS_TAURI,
     isZip,
     notify,
+    send,
     versionCompare,
   } from '$lib/utils';
   import PreferencesModal from '$lib/components/Preferences.svelte';
@@ -42,8 +45,10 @@
   import { tempDir } from '@tauri-apps/api/path';
   import { download as tauriDownload } from '@tauri-apps/plugin-upload';
   import { readFile, remove } from '@tauri-apps/plugin-fs';
-  import { random } from 'mathjs';
+  import { random, re } from 'mathjs';
   import { base } from '$app/paths';
+  import { listen } from '@tauri-apps/api/event';
+  import { invoke } from '@tauri-apps/api/core';
 
   interface FileEntry {
     id: number;
@@ -134,6 +139,7 @@
 
     addEventListener('message', async (e: MessageEvent<IncomingMessage>) => {
       const message = e.data;
+      if (!message || !message.type) return;
       if (message.type === 'play') {
         let config: Config;
         if ('resources' in message.payload) {
@@ -163,18 +169,37 @@
           };
         }
         handleParams(config);
-      } else {
-        if (message.type === 'zipInput') {
-          showCollapse = true;
-          await handleFiles(
-            await decompressZipArchives(
-              (e.data.payload as Blob[]).map((blob) => new File([blob], 'archive.zip')),
-            ),
-          );
-        } else if (message.type === 'fileInput') {
-          showCollapse = true;
-          await handleFiles((e.data.payload as Blob[]).map((blob) => new File([blob], 'file')));
+      } else if (
+        message.type === 'zipInput' ||
+        message.type === 'fileInput' ||
+        message.type === 'zipUrlInput' ||
+        message.type === 'fileUrlInput'
+      ) {
+        showCollapse = true;
+        const files: File[] = [];
+        let replacee: number | undefined = undefined;
+        if (message.type.includes('Url')) {
+          const payload = (e.data as UrlInputMessage).payload;
+          replacee = payload.replacee;
+          if (message.type === 'zipUrlInput') {
+            files.push(...(await decompressZipArchives(await downloadUrls(payload.input))));
+          } else if (message.type === 'fileUrlInput') {
+            files.push(...(await downloadUrls(payload.input)));
+          }
+        } else {
+          const payload = (e.data as BlobInputMessage).payload;
+          replacee = payload.replacee;
+          if (message.type === 'zipInput') {
+            files.push(
+              ...(await decompressZipArchives(
+                payload.input.map((blob) => new File([blob], 'archive.zip')),
+              )),
+            );
+          } else if (message.type === 'fileInput') {
+            files.push(...payload.input.map((blob) => new File([blob], 'file')));
+          }
         }
+        await handleFiles(files, replacee);
       }
     });
 
@@ -182,6 +207,16 @@
       onOpenUrl((urls) => {
         handleRedirect(urls[0]);
       });
+      listen('incoming-files', async (event) => {
+        const filePaths = event.payload as string[];
+        console.log(filePaths);
+        await handleFilePaths(filePaths);
+      });
+      const result = await invoke('get_incoming_files');
+      if (result) {
+          console.log('Incoming files', result);
+          await handleFilePaths(result as string[]);
+        }
     }
 
     if (Capacitor.getPlatform() !== 'web') {
@@ -207,6 +242,13 @@
         })
         .catch((err) => console.error(err));
     }
+
+    send({
+      type: 'event',
+      payload: {
+        name: 'ready',
+      },
+    });
   });
 
   const init = async () => {
@@ -313,6 +355,20 @@
       const searchParams = new URL(url).searchParams;
       handleParamFiles(searchParams);
     }
+  };
+
+  const handleFilePaths = async (filePaths: string[]) => {
+    let promises = await Promise.allSettled(
+      filePaths.map(async (filePath) => {
+        const data = await readFile(filePath);
+        return new File([data], filePath.split('/').pop() ?? filePath);
+      }),
+    );
+    handleFiles(
+      promises
+        .filter((promise) => promise.status === 'fulfilled')
+        .map((promise) => (promise as PromiseFulfilledResult<File>).value),
+    );
   };
 
   const shareId = (a: FileEntry, b: FileEntry) =>
@@ -490,7 +546,7 @@
     return result;
   };
 
-  const handleFiles = async (files: File[] | null) => {
+  const handleFiles = async (files: File[] | null, replacee?: number) => {
     if (!files || files.length === 0) {
       return;
     }
@@ -512,12 +568,27 @@
             const json = JSON.parse(await file.text());
             if (json.META) {
               chartFiles.push({ id, file });
+              if (replacee !== undefined && replacee < chartBundles.length) {
+                const replaceeBundle = chartBundles[replacee];
+                selectedChart = id;
+                replaceeBundle.chart = id;
+              }
             }
           } catch {}
         } else if (type === 0) {
           imageFiles.push({ id, file, url: URL.createObjectURL(file) });
+          if (replacee !== undefined && replacee < chartBundles.length) {
+            const replaceeBundle = chartBundles[replacee];
+            selectedIllustration = id;
+            replaceeBundle.illustration = id;
+          }
         } else if (type === 1) {
           audioFiles.push({ id, file });
+          if (replacee !== undefined && replacee < chartBundles.length) {
+            const replaceeBundle = chartBundles[replacee];
+            selectedSong = id;
+            replaceeBundle.song = id;
+          }
         }
         assets.push({ id, type, file, included: isIncluded(file.name) });
       }),
@@ -583,13 +654,12 @@
         );
       }, 1000),
     );
-    const message: OutgoingMessage = {
+    send({
       type: 'inputResponse',
       payload: {
         bundlesResolved,
       },
-    };
-    parent.postMessage(message, '*');
+    });
   };
 
   const getUrl = (blob: Blob | undefined) => (blob ? URL.createObjectURL(blob) : null);
@@ -612,7 +682,7 @@
       newTab: params.newTab,
       inApp: params.inApp,
     };
-    const message: OutgoingMessage = {
+    send({
       type: 'bundle',
       payload: {
         metadata: params.metadata,
@@ -630,8 +700,7 @@
           }),
         },
       },
-    };
-    parent.postMessage(message, '*');
+    });
     const paramsString = queryString.stringify(params, {
       arrayFormat: 'none',
       skipEmptyString: true,
@@ -641,16 +710,16 @@
     start(paramsString.length <= 15360 ? `${base}/play?${paramsString}` : `${base}/play`);
   };
 
+  const downloadUrls = async (urls: string[]) => {
+    const result = [];
+    for (const url of urls) {
+      result.push(await download(url));
+    }
+    return result;
+  };
+
   const handleParamFiles = async (params: URLSearchParams) => {
     showCollapse = true;
-
-    const downloadUrls = async (urls: string[]) => {
-      const result = [];
-      for (const url of urls) {
-        result.push(await download(url));
-      }
-      return result;
-    };
 
     const zipArchives = await downloadUrls(params.getAll('zip'));
     const regularFiles = await downloadUrls(params.getAll('file'));
