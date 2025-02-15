@@ -1,5 +1,5 @@
 <script lang="ts">
-  import JSZip, { file } from 'jszip';
+  import JSZip from 'jszip';
   import mime from 'mime/lite';
   import { onMount } from 'svelte';
   import queryString from 'query-string';
@@ -9,7 +9,6 @@
     Config,
     IncomingMessage,
     Metadata,
-    OutgoingMessage,
     Preferences,
     RecorderOptions,
     Release,
@@ -45,7 +44,7 @@
   import { tempDir } from '@tauri-apps/api/path';
   import { download as tauriDownload } from '@tauri-apps/plugin-upload';
   import { readFile, remove } from '@tauri-apps/plugin-fs';
-  import { random, re } from 'mathjs';
+  import { random } from 'mathjs';
   import { base } from '$app/paths';
   import { listen } from '@tauri-apps/api/event';
   import { invoke } from '@tauri-apps/api/core';
@@ -148,7 +147,7 @@
           const assetsIncluded = assets.filter((asset) => asset.included);
           const { preferences: pref, recorderOptions: rec, ...rest } = message.payload;
           for (const key in rest) {
-            if (!!rest[key as keyof typeof rest]) {
+            if (rest[key as keyof typeof rest]) {
               toggles[key as keyof typeof toggles] = rest[key as keyof typeof rest] as never;
             }
           }
@@ -214,9 +213,9 @@
       });
       const result = await invoke('get_incoming_files');
       if (result) {
-          console.log('Incoming files', result);
-          await handleFilePaths(result as string[]);
-        }
+        console.log('Incoming files', result);
+        await handleFilePaths(result as string[]);
+      }
     }
 
     if (Capacitor.getPlatform() !== 'web') {
@@ -574,7 +573,9 @@
                 replaceeBundle.chart = id;
               }
             }
-          } catch {}
+          } catch (e) {
+            console.debug('Chart is not a JSON file:', e);
+          }
         } else if (type === 0) {
           imageFiles.push({ id, file, url: URL.createObjectURL(file) });
           if (replacee !== undefined && replacee < chartBundles.length) {
@@ -1435,7 +1436,7 @@
                 >
                   The canvas will be recorded and saved as a video file.
                   <br />
-                  Note that this feature is still work in progress.
+                  Note that this feature is still a work in progress.
                 </span>
               </label>
             </div>
@@ -1670,7 +1671,7 @@
               if (params.length <= 15360) {
                 url = `${base}/play?${params}`;
               } else {
-                const config: Config = {
+                const config = {
                   resources: {
                     song:
                       getUrl(audioFiles.find((file) => file.id === currentBundle.song)?.file) ?? '',
