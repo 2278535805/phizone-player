@@ -23,9 +23,12 @@
     inferLevelType,
     IS_ANDROID_OR_IOS,
     IS_TAURI,
+    isPec,
     isZip,
     notify,
+    readMetadata,
     send,
+    updateMetadata,
     versionCompare,
   } from '$lib/utils';
   import PreferencesModal from '$lib/components/Preferences.svelte';
@@ -53,6 +56,18 @@
     id: number;
     file: File;
     url?: string;
+  }
+
+  interface MetadataEntry {
+    id?: number;
+    name: string;
+    song: string;
+    picture: string;
+    chart: string;
+    composer: string;
+    charter: string;
+    illustration: string;
+    level: string;
   }
 
   interface ChartBundle {
@@ -90,7 +105,7 @@
     chartOffset: 0,
     fcApIndicator: true,
     goodJudgment: 160,
-    hitSoundVolume: 1,
+    hitSoundVolume: 0.75,
     lineThickness: 1,
     musicVolume: 1,
     noteSize: 1,
@@ -104,7 +119,7 @@
     practice: false,
     adjustOffset: false,
     record: false,
-    newTab: false,
+    newTab: true,
     inApp: IS_TAURI || Capacitor.getPlatform() !== 'web' ? 2 : 0,
   };
   let recorderOptions: RecorderOptions = {
@@ -134,7 +149,7 @@
   onMount(async () => {
     if (directoryInput) directoryInput.webkitdirectory = true;
 
-    init();
+    await init();
 
     addEventListener('message', async (e: MessageEvent<IncomingMessage>) => {
       const message = e.data;
@@ -175,30 +190,34 @@
         message.type === 'fileUrlInput'
       ) {
         showCollapse = true;
-        const files: File[] = [];
+        const bundleFileMatrix: File[][] = [];
         let replacee: number | undefined = undefined;
         if (message.type.includes('Url')) {
           const payload = (e.data as UrlInputMessage).payload;
           replacee = payload.replacee;
           if (message.type === 'zipUrlInput') {
-            files.push(...(await decompressZipArchives(await downloadUrls(payload.input))));
+            bundleFileMatrix.push(
+              ...(await decompressZipArchives(await downloadUrls(payload.input))),
+            );
           } else if (message.type === 'fileUrlInput') {
-            files.push(...(await downloadUrls(payload.input)));
+            bundleFileMatrix.push(await downloadUrls(payload.input));
           }
         } else {
           const payload = (e.data as BlobInputMessage).payload;
           replacee = payload.replacee;
           if (message.type === 'zipInput') {
-            files.push(
+            bundleFileMatrix.push(
               ...(await decompressZipArchives(
                 payload.input.map((blob) => new File([blob], 'archive.zip')),
               )),
             );
           } else if (message.type === 'fileInput') {
-            files.push(...payload.input.map((blob) => new File([blob], 'file')));
+            bundleFileMatrix.push(payload.input.map((blob) => new File([blob], 'file')));
           }
         }
-        await handleFiles(files, replacee);
+        for (const files of bundleFileMatrix) {
+          await handleFiles(files, replacee);
+        }
       }
     });
 
@@ -208,12 +227,10 @@
       });
       listen('incoming-files', async (event) => {
         const filePaths = event.payload as string[];
-        console.log(filePaths);
         await handleFilePaths(filePaths);
       });
       const result = await invoke('get_incoming_files');
       if (result) {
-        console.log('Incoming files', result);
         await handleFilePaths(result as string[]);
       }
     }
@@ -264,44 +281,7 @@
       }
 
       if (IS_TAURI || Capacitor.getPlatform() !== 'web') {
-        const latestRelease = (await (
-          await fetch(`${REPO_API_LINK}/releases/latest`)
-        ).json()) as Release;
-        if (versionCompare(latestRelease.tag_name.slice(1), VERSION) > 0) {
-          const clickToDownload =
-            (IS_TAURI && platform() === 'windows') ||
-            platform() === 'macos' ||
-            Capacitor.getPlatform() === 'android';
-          notify(
-            `A new version (${latestRelease.tag_name}) is available. ${clickToDownload ? 'Click to download.' : Capacitor.getPlatform() === 'ios' ? 'Please update the app via TestFlight.' : 'Click to go to the GitHub releases page.'}`,
-            Capacitor.getPlatform() === 'ios'
-              ? undefined
-              : () => {
-                  if (clickToDownload) {
-                    const isWindows = platform() === 'windows';
-                    const isX86 = arch().startsWith('x86');
-                    const asset = latestRelease.assets.find((asset) =>
-                      asset.name.endsWith(
-                        Capacitor.getPlatform() === 'android'
-                          ? '.apk'
-                          : isWindows
-                            ? isX86
-                              ? 'x64-setup.exe'
-                              : 'arm64-setup.exe'
-                            : isX86
-                              ? 'x64.dmg'
-                              : 'aarch64.dmg',
-                      ),
-                    );
-                    if (asset) {
-                      window.location.href = asset?.browser_download_url;
-                      return;
-                    }
-                  }
-                  window.open(latestRelease.html_url);
-                },
-          );
-        }
+        checkForUpdates();
       }
     }
 
@@ -346,6 +326,54 @@
     }
   };
 
+  const checkForUpdates = async () => {
+    const response = await fetch(`${REPO_API_LINK}/releases/latest`, {
+      headers: {
+        'User-Agent': 'PhiZone Player',
+      },
+    });
+    if (!response.ok) {
+      notify('Failed to contact GitHub to check for updates.', 'warning');
+    }
+    const latestRelease = (await response.json()) as Release;
+    if (versionCompare(latestRelease.tag_name.slice(1), VERSION) > 0) {
+      const clickToDownload =
+        (IS_TAURI && platform() === 'windows') ||
+        platform() === 'macos' ||
+        Capacitor.getPlatform() === 'android';
+      notify(
+        `A new version (${latestRelease.tag_name}) is available. ${clickToDownload ? 'Click to download.' : Capacitor.getPlatform() === 'ios' ? 'Please update the app via TestFlight.' : 'Click to go to the GitHub releases page.'}`,
+        'info',
+        Capacitor.getPlatform() === 'ios'
+          ? undefined
+          : () => {
+              if (clickToDownload) {
+                const isWindows = platform() === 'windows';
+                const isX86 = arch().startsWith('x86');
+                const asset = latestRelease.assets.find((asset) =>
+                  asset.name.endsWith(
+                    Capacitor.getPlatform() === 'android'
+                      ? '.apk'
+                      : isWindows
+                        ? isX86
+                          ? 'x64-setup.exe'
+                          : 'arm64-setup.exe'
+                        : isX86
+                          ? 'x64.dmg'
+                          : 'aarch64.dmg',
+                  ),
+                );
+                if (asset) {
+                  window.location.href = asset?.browser_download_url;
+                  return;
+                }
+              }
+              window.open(latestRelease.html_url);
+            },
+      );
+    }
+  };
+
   const handleRedirect = (url: string) => {
     const params = getParams(url, false);
     if (params) {
@@ -357,17 +385,37 @@
   };
 
   const handleFilePaths = async (filePaths: string[]) => {
+    showCollapse = true;
+
     let promises = await Promise.allSettled(
       filePaths.map(async (filePath) => {
         const data = await readFile(filePath);
-        return new File([data], filePath.split('/').pop() ?? filePath);
+        return new File(
+          [data],
+          filePath.split('/').pop() ?? filePath.split('\\').pop() ?? filePath,
+        );
       }),
     );
-    handleFiles(
-      promises
-        .filter((promise) => promise.status === 'fulfilled')
-        .map((promise) => (promise as PromiseFulfilledResult<File>).value),
-    );
+
+    promises
+      .filter((promise) => promise.status === 'rejected')
+      .forEach((promise) => {
+        console.error((promise as PromiseRejectedResult).reason);
+      });
+
+    const regularFiles: File[] = [];
+    for (const file of promises
+      .filter((promise) => promise.status === 'fulfilled')
+      .map((promise) => (promise as PromiseFulfilledResult<File>).value)) {
+      try {
+        const files = await decompress(file);
+        await handleFiles(files);
+      } catch (e) {
+        console.debug(`Cannot decompress ${file.name}`, e);
+        regularFiles.push(file);
+      }
+    }
+    await handleFiles(regularFiles);
   };
 
   const shareId = (a: FileEntry, b: FileEntry) =>
@@ -383,9 +431,11 @@
   };
 
   const download = async (url: string) => {
+    const filename = url.split('/').pop() ?? url.split('\\').pop() ?? url;
+
     progress = 0;
     progressSpeed = 0;
-    progressDetail = `Downloading ${url.split('/').pop()}`;
+    progressDetail = `Downloading ${filename}`;
 
     if (IS_TAURI && url.startsWith('https://')) {
       const filePath = (await tempDir()) + random(1e17, 1e18 - 1);
@@ -396,7 +446,7 @@
       });
       const data = await readFile(filePath);
       await remove(filePath);
-      return new File([data], url.split('/').pop() ?? url);
+      return new File([data], filename);
     } else {
       const response = await fetch(url);
       const contentLength = response.headers.get('content-length');
@@ -489,7 +539,8 @@
     chartFile: FileEntry,
     songFile?: FileEntry,
     illustrationFile?: FileEntry,
-    infoId?: number,
+    metadataEntry?: MetadataEntry,
+    metadata?: Metadata,
     fallback: boolean = false,
     silent: boolean = true,
   ) => {
@@ -509,40 +560,41 @@
       }
       illustrationFile = imageFiles[0];
     }
-    const chart = JSON.parse(await chartFile.file.text()) as RpeJson;
+    if (!metadata && !metadataEntry) {
+      if (!silent) alert('Metadata not found!');
+      return;
+    }
     const bundle = {
       id: Date.now(),
       song: songFile.id,
       chart: chartFile.id,
       illustration: illustrationFile.id,
-      metadata: {
-        title: chart.META.name,
-        composer: chart.META.composer,
-        charter: chart.META.charter,
-        illustrator: chart.META.illustration ?? null,
-        level: chart.META.level,
-        levelType: inferLevelType(chart.META.level),
-        difficulty: null,
-      },
+      metadata: metadataEntry
+        ? {
+            title: metadataEntry.name,
+            composer: metadataEntry.composer,
+            charter: metadataEntry.charter,
+            illustrator: metadataEntry.illustration ?? null,
+            level: metadataEntry.level,
+            levelType: inferLevelType(metadataEntry.level),
+            difficulty: null,
+          }
+        : metadata!,
     };
     chartBundles.push(bundle);
     chartBundles = chartBundles;
-    if (infoId) {
-      assets = assets.filter(
-        (a) =>
-          a.id !== chartFile.id &&
-          a.id !== songFile?.id &&
-          a.id !== illustrationFile?.id &&
-          a.id !== infoId,
-      );
-    }
+    assets = assets.filter(
+      (a) =>
+        a.id !== chartFile.id &&
+        a.id !== songFile?.id &&
+        a.id !== illustrationFile?.id &&
+        a.id !== metadataEntry?.id,
+    );
     return bundle;
   };
 
   const decompressZipArchives = async (files: File[]) => {
-    const result: File[] = [];
-    (await Promise.all(files.map(decompress))).flat().forEach((file) => result.push(file));
-    return result;
+    return await Promise.all(files.map(decompress));
   };
 
   const handleFiles = async (files: File[] | null, replacee?: number) => {
@@ -551,9 +603,10 @@
     }
     resetProgress();
     progressDetail = 'Processing files';
+    const now = Date.now();
     await Promise.all(
       files.map(async (file, i) => {
-        const id = Date.now() + i;
+        const id = now + i;
         let mimeType: string | null = null;
         try {
           mimeType = (await fileTypeFromBlob(file))?.mime.toString() ?? mime.getType(file.name);
@@ -562,19 +615,27 @@
           mimeType = mime.getType(file.name);
         }
         const type = getFileType(mimeType, file.name);
+        let chartSuccess = false;
+        const chartContent = await file.text();
         if (mimeType === 'application/json') {
           try {
-            const json = JSON.parse(await file.text());
+            const json = JSON.parse(chartContent);
             if (json.META) {
-              chartFiles.push({ id, file });
-              if (replacee !== undefined && replacee < chartBundles.length) {
-                const replaceeBundle = chartBundles[replacee];
-                selectedChart = id;
-                replaceeBundle.chart = id;
-              }
+              chartSuccess = true;
             }
           } catch (e) {
-            console.debug('Chart is not a JSON file:', e);
+            console.debug('Chart is not a valid RPE JSON:', e);
+          }
+        }
+        if (isPec(chartContent.split(/\r?\n/).slice(0, 2))) {
+          chartSuccess = true;
+        }
+        if (chartSuccess) {
+          chartFiles.push({ id, file });
+          if (replacee !== undefined && replacee < chartBundles.length) {
+            const replaceeBundle = chartBundles[replacee];
+            selectedChart = id;
+            replaceeBundle.chart = id;
           }
         } else if (type === 0) {
           imageFiles.push({ id, file, url: URL.createObjectURL(file) });
@@ -594,29 +655,25 @@
         assets.push({ id, type, file, included: isIncluded(file.name) });
       }),
     );
-    const fields = ['Song:', 'Picture:', 'Chart:'];
     progressDetail = 'Seeking for charts';
     const textAssets = assets.filter((asset) => asset.type === 3);
     let bundlesResolved = 0;
     for (let i = 0; i < textAssets.length; i++) {
       progress = i / textAssets.length;
       const asset = textAssets[i];
-      const lines = (await asset.file.text()).split(/\r?\n/);
-      if (
-        lines[0] === '#' &&
-        fields.every((val) => lines.findIndex((line) => line.startsWith(val)) !== -1)
-      ) {
-        const values = fields.map((field) =>
-          lines
-            .find((line) => line.startsWith(field))!
-            .slice(field.length)
-            .trim(),
-        );
-        const chartFile = chartFiles.find((file) => file.file.name === values[2]);
-        const songFile = audioFiles.find((file) => file.file.name === values[0]);
-        const illustrationFile = imageFiles.find((file) => file.file.name === values[1]);
+      let metadata = readMetadata(await asset.file.text());
+      if (metadata) {
+        const chartFile = chartFiles.find((file) => file.file.name === metadata.chart);
+        const songFile = audioFiles.find((file) => file.file.name === metadata.song);
+        const illustrationFile = imageFiles.find((file) => file.file.name === metadata.picture);
         if (!chartFile) continue;
-        await createBundle(chartFile, songFile, illustrationFile, asset.id);
+        try {
+          const chartMeta = (JSON.parse(await chartFile.file.text()) as RpeJson).META;
+          metadata = updateMetadata(metadata, chartMeta);
+        } catch (e) {
+          console.debug('Chart is not a valid RPE JSON:', e);
+        }
+        await createBundle(chartFile, songFile, illustrationFile, { id: asset.id, ...metadata });
         bundlesResolved++;
       }
     }
@@ -626,8 +683,19 @@
       audioFiles.length > 0 &&
       imageFiles.length > 0
     ) {
-      await createBundle(chartFiles[0], undefined, undefined, undefined, true);
-      bundlesResolved++;
+      try {
+        await createBundle(
+          chartFiles[0],
+          undefined,
+          undefined,
+          readMetadata(undefined, (JSON.parse(await chartFiles[0].file.text()) as RpeJson).META),
+          undefined,
+          true,
+        );
+        bundlesResolved++;
+      } catch (e) {
+        console.debug('Chart is not a valid RPE JSON:', e);
+      }
     }
     if (chartBundles.length > 0 && selectedBundle === -1) {
       currentBundle = chartBundles[0];
@@ -724,7 +792,10 @@
 
     const zipArchives = await downloadUrls(params.getAll('zip'));
     const regularFiles = await downloadUrls(params.getAll('file'));
-    await handleFiles((await decompressZipArchives(zipArchives)).concat(regularFiles));
+    for (const bundleFiles of await decompressZipArchives(zipArchives)) {
+      await handleFiles(bundleFiles);
+    }
+    await handleFiles(regularFiles);
   };
 
   const configureWebviewWindow = (webview: WebviewWindow) => {
@@ -931,17 +1002,17 @@
           multiple
           accept={IS_ANDROID_OR_IOS || Capacitor.getPlatform() !== 'web'
             ? null
-            : '.pez,.yml,.yaml,.shader,.glsl,.frag,.fsh,.fs,application/zip,application/json,image/*,video/*,audio/*,text/*'}
+            : '.pez,.pec,.yml,.yaml,.shader,.glsl,.frag,.fsh,.fs,application/zip,application/json,image/*,video/*,audio/*,text/*'}
           class="file-input file-input-bordered w-full max-w-xs file:btn dark:file:btn-neutral file:no-animation border-gray-200 rounded-lg transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 dark:border-neutral-700 dark:text-neutral-300 dark:focus:ring-neutral-600"
           on:input={async (e) => {
             const fileList = e.currentTarget.files;
             if (!fileList || fileList.length === 0) return;
             const files = Array.from(fileList);
             const zipArchives = files.filter(isZip);
-            const regularFiles = files
-              .filter((file) => !isZip(file))
-              .concat(await decompressZipArchives(zipArchives));
-            await handleFiles(regularFiles);
+            for (const bundleFiles of await decompressZipArchives(zipArchives)) {
+              await handleFiles(bundleFiles);
+            }
+            await handleFiles(files.filter((file) => !isZip(file)));
           }}
         />
       </label>
@@ -1041,7 +1112,13 @@
               const song = audioFiles.find((file) => file.id === selectedSong);
               const illustration = imageFiles.find((file) => file.id === selectedIllustration);
               if (chart && song && illustration) {
-                const bundle = await createBundle(chart, song, illustration);
+                const bundle = await createBundle(
+                  chart,
+                  song,
+                  illustration,
+                  undefined,
+                  currentBundle.metadata,
+                );
                 if (!bundle) return;
                 currentBundle = bundle;
                 selectedBundle = bundle.id;

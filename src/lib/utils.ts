@@ -1,6 +1,6 @@
 import { get } from 'svelte/store';
 import { page } from '$app/stores';
-import { type Config, type OutgoingMessage } from './types';
+import { type Config, type MetadataEntry, type OutgoingMessage, type RpeMeta } from './types';
 import { AndroidFullScreen } from '@awesome-cordova-plugins/android-full-screen';
 import { Capacitor } from '@capacitor/core';
 import { Clipboard } from '@capacitor/clipboard';
@@ -54,6 +54,98 @@ export const haveSameKeys = (obj1: object, obj2: object): boolean => {
   const keys1 = Object.keys(obj1).sort();
   const keys2 = Object.keys(obj2).sort();
   return JSON.stringify(keys1) === JSON.stringify(keys2);
+};
+
+export const isPec = (pecCriteria: string[]) =>
+  !isNaN(parseFloat(pecCriteria[0])) && /^bp \d+(\.\d+)? \d+(\.\d+)?$/.test(pecCriteria[1]);
+
+export const readMetadata = (text?: string, chartMeta?: RpeMeta): MetadataEntry => {
+  const readFromText = (text: string = '') => {
+    const lines = text.split(/\r?\n/);
+    const fields = ['Name', 'Song', 'Picture', 'Chart', 'Composer', 'Charter', 'Level'];
+    if (
+      lines[0] === '#' &&
+      fields.every((val) => lines.findIndex((line) => line.startsWith(val)) !== -1)
+    ) {
+      const info = fields.map(
+        (field) =>
+          lines
+            .find((line) => line.startsWith(field))
+            ?.slice(field.length + 1)
+            .trim() ?? '',
+      );
+      return {
+        name: info[0],
+        song: info[1],
+        picture: info[2],
+        chart: info[3],
+        composer: info[4],
+        charter: info[5],
+        illustration: '',
+        level: info[6],
+      };
+    }
+    const [_header, ...rows] = text.split(/\r?\n/);
+    const data = rows.map((row) => row.split(','));
+    if (data.length > 0 && data[0].length >= 10) {
+      let i = data.length - 1;
+      while (i > 0 && data[i].length < 10) i--;
+      const [
+        chart,
+        song,
+        picture,
+        _aspectRatio,
+        _scaleRatio,
+        _globalAlpha,
+        name,
+        level,
+        illustrator,
+        designer,
+      ] = data[i];
+      return {
+        name,
+        song,
+        picture,
+        chart,
+        composer: '',
+        charter: designer,
+        illustration: illustrator,
+        level,
+        // aspectRatio: parseFloat(_aspectRatio),
+        // scaleRatio: parseFloat(_scaleRatio),
+        // globalAlpha: parseFloat(_globalAlpha),
+      };
+    }
+    // TODO add support for other metadata formats
+    console.warn('Metadata format not recognized: ', text);
+    return {
+      name: '',
+      song: '',
+      picture: '',
+      chart: '',
+      composer: '',
+      charter: '',
+      illustration: '',
+      level: '',
+    };
+  };
+
+  let metadata = readFromText(text);
+  if (chartMeta) {
+    metadata = updateMetadata(metadata, chartMeta);
+  }
+  return metadata;
+};
+
+export const updateMetadata = (metadata: MetadataEntry, chartMeta: RpeMeta) => {
+  metadata.name = chartMeta.name;
+  metadata.song = chartMeta.song;
+  metadata.picture = chartMeta.background;
+  metadata.composer = chartMeta.composer;
+  metadata.charter = chartMeta.charter;
+  metadata.illustration = chartMeta.illustration ?? metadata.illustration;
+  metadata.level = chartMeta.level;
+  return metadata;
 };
 
 export const inferLevelType = (level: string | null): 0 | 1 | 2 | 3 | 4 => {
@@ -116,7 +208,7 @@ export const getParams = (url?: string, loadFromStorage = true): Config | null =
   const chartOffset = parseInt(searchParams.get('chartOffset') ?? '0');
   const fcApIndicator = ['1', 'true'].some((v) => v == (searchParams.get('fcApIndicator') ?? '1'));
   const goodJudgment = parseInt(searchParams.get('goodJudgment') ?? '160');
-  const hitSoundVolume = parseFloat(searchParams.get('hitSoundVolume') ?? '1');
+  const hitSoundVolume = parseFloat(searchParams.get('hitSoundVolume') ?? '0.75');
   const lineThickness = parseFloat(searchParams.get('lineThickness') ?? '1');
   const musicVolume = parseFloat(searchParams.get('musicVolume') ?? '1');
   const noteSize = parseFloat(searchParams.get('noteSize') ?? '1');
@@ -217,19 +309,28 @@ export const versionCompare = (aString: string, bString: string) => {
   return 0;
 };
 
-export const notify = (message: string, clickCallback?: () => void) => {
-  const ID = `notification-${performance.now()}`;
-  Notiflix.Notify.info(message, {
-    ID,
+const notiflix = (message: string, type: 'info' | 'warning' | 'failure' | 'success' = 'info') => {
+  const id = `notiflix-${type}-${performance.now()}`;
+  Notiflix.Notify[type](message, {
+    ID: id,
     cssAnimationStyle: 'from-right',
     showOnlyTheLastOne: false,
     opacity: 0.9,
     borderRadius: '12px',
   });
+  return id;
+};
+
+export const notify = (
+  message: string,
+  type: 'info' | 'warning' | 'failure' | 'success' = 'info',
+  clickCallback?: () => void,
+) => {
+  const id = notiflix(message, type);
   if (!clickCallback) return;
   document
     .querySelectorAll('.notiflix-notify')
-    ?.forEach((e) => e.id.startsWith(ID) && e.addEventListener('click', clickCallback));
+    ?.forEach((e) => e.id.startsWith(id) && e.addEventListener('click', clickCallback));
 };
 
 export const alertError = (error: Error, message?: string) => {
@@ -245,17 +346,10 @@ export const alertError = (error: Error, message?: string) => {
   }
   if (message) message2 = message;
   const errMessage = `(Click to copy) [${type}] ${message2.split('\n')[0]}`;
-  const ID = `msgHandlerErr-${performance.now()}`;
-  Notiflix.Notify.failure(errMessage, {
-    ID,
-    cssAnimationStyle: 'from-right',
-    showOnlyTheLastOne: false,
-    opacity: 0.9,
-    borderRadius: '12px',
-  });
+  const id = notiflix(errMessage, 'failure');
   document.querySelectorAll('.notiflix-notify')?.forEach(
     (e) =>
-      e.id.startsWith(ID) &&
+      e.id.startsWith(id) &&
       e.addEventListener('click', async () => {
         const text = error.stack ?? `${error.name}: ${error.message}`;
         if (Capacitor.getPlatform() === 'web') navigator.clipboard.writeText(text);

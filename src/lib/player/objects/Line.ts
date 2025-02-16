@@ -126,18 +126,6 @@ export class Line {
       this._rotationOffset = 180;
     }
 
-    // this._flickContainer.add(scene.add.rectangle(0, 0, 10, 10, 0x00ff00).setOrigin(0.5));
-    // this._flickContainer.add(
-    //   scene.add
-    //     .text(0, 20, num.toString(), {
-    //       fontFamily: 'Outfit',
-    //       fontSize: 25,
-    //       color: '#ffffff',
-    //       align: 'center',
-    //     })
-    //     .setOrigin(0.5),
-    // );
-
     this.setVisible(false);
     scene.registerNode(this._line, `line-${num}`);
 
@@ -165,11 +153,6 @@ export class Line {
     processControlNodes(this._data.yControl);
 
     if (this._data.notes) {
-      // this._holdContainer = this.createContainer(3);
-      // this._dragContainer = this.createContainer(4);
-      // this._tapContainer = this.createContainer(5);
-      // this._flickContainer = this.createContainer(6);
-
       this._data.notes.forEach((note) => {
         note.startBeat = toBeats(note.startTime);
         note.endBeat = toBeats(note.endTime);
@@ -197,6 +180,19 @@ export class Line {
         });
       }
     }
+
+    // this.createContainer(this._line.depth)
+    //   .add(scene.add.rectangle(0, 0, 10, 10, 0x00ff00).setOrigin(0.5))
+    //   .add(
+    //     scene.add
+    //       .text(0, 20, num.toString(), {
+    //         fontFamily: 'Outfit',
+    //         fontSize: 25,
+    //         color: '#ffffff',
+    //         align: 'center',
+    //       })
+    //       .setOrigin(0.5),
+    //   );
   }
 
   update(beat: number, songTime: number, gameTime: number) {
@@ -206,7 +202,7 @@ export class Line {
     this.handleEventLayers(beat);
     this.updateParams();
     this._notes.forEach((note) => {
-      note.update(beat / this._data.bpmfactor, songTime, this._height, this._opacity >= 0);
+      note.update(beat / this._data.bpmfactor, songTime, this._height, this._opacity);
     });
   }
 
