@@ -7,5 +7,9 @@
 		<string>applinks:player.phi.zone</string>
 		<string>applinks:player.phizone.cn</string>
 	</array>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.cn.phizone.player</string>
+	</array>
 </dict>
 </plist>

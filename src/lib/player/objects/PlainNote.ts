@@ -1,14 +1,16 @@
 // import { GameObjects } from 'phaser';
 import { SkewImage } from 'phaser3-rex-plugins/plugins/quadimage.js';
 import { JudgmentType, type Note } from '$lib/types';
-import { clamp } from '$lib/utils';
+import { clamp, isDebug } from '$lib/utils';
 import { getControlValue, getTimeSec, rgbToHex } from '../utils';
 import type { Game } from '../scenes/Game';
 import type { Line } from './Line';
 import { NOTE_BASE_SIZE, NOTE_PRIORITIES } from '../constants';
+import { GameObjects } from 'phaser';
 
 export class PlainNote extends SkewImage {
   private _scene: Game;
+  private _index: number;
   private _data: Note;
   private _line: Line;
   private _xModifier: 1 | -1 = 1;
@@ -22,13 +24,16 @@ export class PlainNote extends SkewImage {
   private _beatJudged: number | undefined = undefined;
   private _isInJudgeWindow: boolean = false;
   private _pendingPerfect: boolean = false;
-  private _hasTapInput: boolean = false;
+  private _isTapped: boolean = false;
   private _consumeTap: boolean = true;
 
-  constructor(scene: Game, data: Note, highlight: boolean = false) {
-    super(scene, undefined, undefined, `${data.type}${highlight ? '-hl' : ''}`);
+  private _debug: GameObjects.Container | undefined = undefined;
+
+  constructor(scene: Game, data: Note, index: number, highlight: boolean = false) {
+    super(scene, 0, 0, `${data.type}${highlight ? '-hl' : ''}`);
 
     this._scene = scene;
+    this._index = index;
     this._data = data;
     this._yModifier = data.above === 1 ? -1 : 1;
     this._hitTime = getTimeSec(scene.bpmList, data.startBeat);
@@ -44,6 +49,10 @@ export class PlainNote extends SkewImage {
     }
 
     this._data.yOffset *= this._data.speed; // bro's intercept depends on slope 👍👍👍
+
+    if (isDebug()) {
+      this._debug = new GameObjects.Container(scene);
+    }
   }
 
   update(beat: number, songTime: number, height: number, lineOpacity: number) {
@@ -109,6 +118,12 @@ export class PlainNote extends SkewImage {
           (dist >= this._scene.o(this._data.yOffset) || !this._line.data.isCover),
       );
     }
+
+    if (this._debug) {
+      this._debug.copyPosition(this);
+      this._debug.setRotation(this.rotation);
+      this._debug.setScale(this._scene.p(1.4 * NOTE_BASE_SIZE));
+    }
   }
 
   updateJudgment(beat: number, songTime: number) {
@@ -139,9 +154,13 @@ export class PlainNote extends SkewImage {
           this._line.addToJudgeWindow(this);
           this._isInJudgeWindow = true;
         }
-        if (isTap && !this._hasTapInput) return;
-        this._hasTapInput = false;
-        if (!this._scene.pointer.findDrag(this, isFlick)) return;
+        if (isTap && !this._isTapped) return;
+        this._isTapped = false;
+        if (
+          !this._scene.keyboard.findDrag(this, isFlick) &&
+          !this._scene.pointer.findDrag(this, isFlick)
+        )
+          return;
         if (isTap && delta < -goodJudgment) {
           this._scene.judgment.hit(JudgmentType.BAD, deltaSec, this);
         } else if (delta < -perfectJudgment) {
@@ -217,12 +236,12 @@ export class PlainNote extends SkewImage {
     return this._hitTime;
   }
 
-  public get hasTapInput() {
-    return this._hasTapInput;
+  public get isTapped() {
+    return this._isTapped;
   }
 
-  public set hasTapInput(hasTapInput: boolean) {
-    this._hasTapInput = hasTapInput;
+  public set isTapped(isTapped: boolean) {
+    this._isTapped = isTapped;
   }
 
   public get consumeTap() {
@@ -241,9 +260,28 @@ export class PlainNote extends SkewImage {
 
   public set line(line: Line) {
     this._line = line;
+
+    if (this._debug) {
+      line.debug?.add(
+        this._debug.add(this._scene.add.circle(0, 0, 32, 0xffff00).setOrigin(0.5)).add(
+          this._scene.add
+            .text(0, 72, `${this._line.index}/${this._index}`, {
+              fontFamily: 'Outfit',
+              fontSize: 80,
+              color: '#e2e2e2',
+              align: 'center',
+            })
+            .setOrigin(0.5),
+        ),
+      );
+    }
   }
 
   public get note() {
     return this._data;
+  }
+
+  public get floor() {
+    return this.y;
   }
 }

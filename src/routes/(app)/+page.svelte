@@ -18,6 +18,7 @@
   import {
     clamp,
     fit,
+    getLines,
     getParams,
     haveSameKeys,
     inferLevelType,
@@ -34,6 +35,7 @@
   import PreferencesModal from '$lib/components/Preferences.svelte';
   import { goto } from '$app/navigation';
   import { Capacitor } from '@capacitor/core';
+  import { Network } from '@capacitor/network';
   import { getCurrentWebviewWindow, WebviewWindow } from '@tauri-apps/api/webviewWindow';
   import { PhysicalPosition, PhysicalSize } from '@tauri-apps/api/dpi';
   import { currentMonitor, type Monitor } from '@tauri-apps/api/window';
@@ -42,7 +44,7 @@
   import { App, type URLOpenListenerEvent } from '@capacitor/app';
   import { page } from '$app/stores';
   import { REPO_API_LINK, REPO_LINK, VERSION } from '$lib';
-  import { SendIntent } from 'send-intent';
+  import { SendIntent, type Intent } from 'send-intent';
   import { Filesystem } from '@capacitor/filesystem';
   import { tempDir } from '@tauri-apps/api/path';
   import { download as tauriDownload } from '@tauri-apps/plugin-upload';
@@ -119,7 +121,7 @@
     practice: false,
     adjustOffset: false,
     record: false,
-    newTab: true,
+    newTab: Capacitor.getPlatform() === 'web',
     inApp: IS_TAURI || Capacitor.getPlatform() !== 'web' ? 2 : 0,
   };
   let recorderOptions: RecorderOptions = {
@@ -146,7 +148,18 @@
 
   let timeouts: NodeJS.Timeout[] = [];
 
+  let isFirstLoad = !$page.url.searchParams.get('t');
+
   onMount(async () => {
+    const checkDebug = (values: string[]) =>
+      values.some((v) => v === $page.url.searchParams.get('debug'));
+    if (checkDebug(['1', 'true'])) {
+      localStorage.setItem('debug', 'true');
+      notify('Debug enabled.', 'info');
+    } else if (checkDebug(['0', 'false']) && localStorage.getItem('debug')) {
+      localStorage.removeItem('debug');
+      notify('Debug disabled.', 'info');
+    }
     if (directoryInput) directoryInput.webkitdirectory = true;
 
     await init();
@@ -225,13 +238,19 @@
       onOpenUrl((urls) => {
         handleRedirect(urls[0]);
       });
-      listen('incoming-files', async (event) => {
+      const handler = async (path: string) => {
+        const data = await readFile(path);
+        return new File([data], path.split('/').pop() ?? path.split('\\').pop() ?? path);
+      };
+      listen('files-opened', async (event) => {
         const filePaths = event.payload as string[];
-        await handleFilePaths(filePaths);
+        await handleFilePaths(filePaths, handler);
       });
-      const result = await invoke('get_incoming_files');
-      if (result) {
-        await handleFilePaths(result as string[]);
+      if (isFirstLoad) {
+        const result = await invoke('get_files_opened');
+        if (result) {
+          await handleFilePaths(result as string[], handler);
+        }
       }
     }
 
@@ -239,24 +258,8 @@
       App.addListener('appUrlOpen', (event: URLOpenListenerEvent) => {
         handleRedirect(event.url);
       });
-      SendIntent.checkSendIntentReceived()
-        .then((result) => {
-          if (result) {
-            console.log('SendIntent received');
-            console.log(JSON.stringify(result));
-          }
-          if (result.url) {
-            let resultUrl = decodeURIComponent(result.url);
-            Filesystem.readFile({ path: resultUrl })
-              .then((content) => {
-                decompress(content.data as Blob).then((files) => {
-                  handleFiles(files);
-                });
-              })
-              .catch((err) => console.error(err));
-          }
-        })
-        .catch((err) => console.error(err));
+      if (isFirstLoad) await handleSendIntent();
+      addEventListener('sendIntentReceived', handleSendIntent);
     }
 
     send({
@@ -268,7 +271,7 @@
   });
 
   const init = async () => {
-    if (!$page.url.searchParams.get('t')) {
+    if (isFirstLoad) {
       const url = IS_TAURI ? (await getCurrent())?.at(0) : undefined;
       if (url) {
         const params = getParams(url, false);
@@ -280,7 +283,12 @@
         handleParamFiles(searchParams);
       }
 
-      if (IS_TAURI || Capacitor.getPlatform() !== 'web') {
+      if (
+        (IS_TAURI && navigator.onLine) ||
+        (Capacitor.getPlatform() !== 'web' &&
+          ((Capacitor.getPlatform() !== 'ios' && (await Network.getStatus()).connected) ||
+            (Capacitor.getPlatform() === 'ios' && navigator.onLine)))
+      ) {
         checkForUpdates();
       }
     }
@@ -327,50 +335,56 @@
   };
 
   const checkForUpdates = async () => {
-    const response = await fetch(`${REPO_API_LINK}/releases/latest`, {
-      headers: {
-        'User-Agent': 'PhiZone Player',
-      },
-    });
-    if (!response.ok) {
-      notify('Failed to contact GitHub to check for updates.', 'warning');
-    }
-    const latestRelease = (await response.json()) as Release;
-    if (versionCompare(latestRelease.tag_name.slice(1), VERSION) > 0) {
-      const clickToDownload =
-        (IS_TAURI && platform() === 'windows') ||
-        platform() === 'macos' ||
-        Capacitor.getPlatform() === 'android';
-      notify(
-        `A new version (${latestRelease.tag_name}) is available. ${clickToDownload ? 'Click to download.' : Capacitor.getPlatform() === 'ios' ? 'Please update the app via TestFlight.' : 'Click to go to the GitHub releases page.'}`,
-        'info',
-        Capacitor.getPlatform() === 'ios'
-          ? undefined
-          : () => {
-              if (clickToDownload) {
-                const isWindows = platform() === 'windows';
-                const isX86 = arch().startsWith('x86');
-                const asset = latestRelease.assets.find((asset) =>
-                  asset.name.endsWith(
-                    Capacitor.getPlatform() === 'android'
-                      ? '.apk'
-                      : isWindows
-                        ? isX86
-                          ? 'x64-setup.exe'
-                          : 'arm64-setup.exe'
-                        : isX86
-                          ? 'x64.dmg'
-                          : 'aarch64.dmg',
-                  ),
-                );
-                if (asset) {
-                  window.location.href = asset?.browser_download_url;
-                  return;
+    let success = false;
+    try {
+      const response = await fetch(`${REPO_API_LINK}/releases/latest`, {
+        headers: {
+          'User-Agent': 'PhiZone Player',
+        },
+      });
+      success = response.ok;
+      const latestRelease = (await response.json()) as Release;
+      if (versionCompare(latestRelease.tag_name.slice(1), VERSION) > 0) {
+        const clickToDownload =
+          (IS_TAURI && platform() === 'windows') ||
+          platform() === 'macos' ||
+          Capacitor.getPlatform() === 'android';
+        notify(
+          `A new version (${latestRelease.tag_name}) is available. ${clickToDownload ? 'Click to download.' : Capacitor.getPlatform() === 'ios' ? 'Please update the app via TestFlight.' : 'Click to go to the GitHub releases page.'}`,
+          'info',
+          Capacitor.getPlatform() === 'ios'
+            ? undefined
+            : () => {
+                if (clickToDownload) {
+                  const isWindows = platform() === 'windows';
+                  const isX86 = arch().startsWith('x86');
+                  const asset = latestRelease.assets.find((asset) =>
+                    asset.name.endsWith(
+                      Capacitor.getPlatform() === 'android'
+                        ? '.apk'
+                        : isWindows
+                          ? isX86
+                            ? 'x64-setup.exe'
+                            : 'arm64-setup.exe'
+                          : isX86
+                            ? 'x64.dmg'
+                            : 'aarch64.dmg',
+                    ),
+                  );
+                  if (asset) {
+                    window.location.href = asset?.browser_download_url;
+                    return;
+                  }
                 }
-              }
-              window.open(latestRelease.html_url);
-            },
-      );
+                window.open(latestRelease.html_url);
+              },
+        );
+      }
+    } catch (e) {
+      console.warn(e);
+    }
+    if (!success) {
+      notify('Failed to contact GitHub to check for updates.', 'warning');
     }
   };
 
@@ -384,16 +398,36 @@
     }
   };
 
-  const handleFilePaths = async (filePaths: string[]) => {
+  const handleSendIntent = async () => {
+    const result = await SendIntent.checkSendIntentReceived();
+    if (result.url) {
+      console.log('Send intent received:', JSON.stringify(result));
+      await handleFilePaths([result], async (result: Intent) => {
+        let resultUrl = decodeURIComponent(result.url!);
+        const file = await Filesystem.readFile({ path: resultUrl });
+        const blob =
+          typeof file.data === 'string'
+            ? new Blob([
+                new Uint8Array(
+                  atob(file.data as string)
+                    .split('')
+                    .map((char) => char.charCodeAt(0)),
+                ),
+              ])
+            : file.data;
+        return new File([blob], result.title ?? '');
+      });
+    }
+  };
+
+  // SvelteKit somehow does not support the lambda form of this function
+  async function handleFilePaths<T>(paths: T[], handler: (path: T) => Promise<File>) {
+    if (paths.length === 0) return;
     showCollapse = true;
 
     let promises = await Promise.allSettled(
-      filePaths.map(async (filePath) => {
-        const data = await readFile(filePath);
-        return new File(
-          [data],
-          filePath.split('/').pop() ?? filePath.split('\\').pop() ?? filePath,
-        );
+      paths.map(async (filePath) => {
+        return handler(filePath);
       }),
     );
 
@@ -416,7 +450,7 @@
       }
     }
     await handleFiles(regularFiles);
-  };
+  }
 
   const shareId = (a: FileEntry, b: FileEntry) =>
     a.file.name.split('.').slice(0, -1).join('.') === b.file.name.split('.').slice(0, -1).join('.');
@@ -440,7 +474,7 @@
     if (IS_TAURI && url.startsWith('https://')) {
       const filePath = (await tempDir()) + random(1e17, 1e18 - 1);
       await tauriDownload(url, filePath, (payload) => {
-        console.log(payload);
+        if (progressSpeed === -1) return;
         progress = clamp(payload.progressTotal / payload.total, 0, 1);
         progressSpeed = payload.transferSpeed;
       });
@@ -627,7 +661,7 @@
             console.debug('Chart is not a valid RPE JSON:', e);
           }
         }
-        if (isPec(chartContent.split(/\r?\n/).slice(0, 2))) {
+        if (isPec(getLines(chartContent).slice(0, 2))) {
           chartSuccess = true;
         }
         if (chartSuccess) {
@@ -683,19 +717,26 @@
       audioFiles.length > 0 &&
       imageFiles.length > 0
     ) {
+      let metadata = {
+        name: '',
+        song: '',
+        picture: '',
+        chart: '',
+        composer: '',
+        charter: '',
+        illustration: '',
+        level: '',
+      };
       try {
-        await createBundle(
-          chartFiles[0],
+        metadata = readMetadata(
           undefined,
-          undefined,
-          readMetadata(undefined, (JSON.parse(await chartFiles[0].file.text()) as RpeJson).META),
-          undefined,
-          true,
+          (JSON.parse(await chartFiles[0].file.text()) as RpeJson).META,
         );
-        bundlesResolved++;
       } catch (e) {
         console.debug('Chart is not a valid RPE JSON:', e);
       }
+      await createBundle(chartFiles[0], undefined, undefined, metadata, undefined, true);
+      bundlesResolved++;
     }
     if (chartBundles.length > 0 && selectedBundle === -1) {
       currentBundle = chartBundles[0];
@@ -776,7 +817,7 @@
       skipNull: true,
       sort: false,
     });
-    start(paramsString.length <= 15360 ? `${base}/play?${paramsString}` : `${base}/play`);
+    start(paramsString.length <= 15360 ? `${base}/play/?${paramsString}` : `${base}/play/`);
   };
 
   const downloadUrls = async (urls: string[]) => {
@@ -1744,9 +1785,9 @@
                   sort: false,
                 },
               );
-              let url = `${base}/play`;
+              let url = `${base}/play/`;
               if (params.length <= 15360) {
-                url = `${base}/play?${params}`;
+                url = `${base}/play/?${params}`;
               } else {
                 const config = {
                   resources: {

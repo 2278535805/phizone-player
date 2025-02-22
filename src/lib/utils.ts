@@ -38,6 +38,11 @@ export const IS_ANDROID_OR_IOS =
 
 export const IS_IFRAME = window.self !== window.top;
 
+export const isDebug = () =>
+  ['1', 'true'].some(
+    (v) => v === get(page).url.searchParams.get('debug') || v === localStorage.getItem('debug'),
+  );
+
 export const setFullscreen = () => {
   if (Capacitor.getPlatform() === 'android') {
     AndroidFullScreen.isImmersiveModeSupported()
@@ -56,12 +61,15 @@ export const haveSameKeys = (obj1: object, obj2: object): boolean => {
   return JSON.stringify(keys1) === JSON.stringify(keys2);
 };
 
+export const getLines = (text: string) =>
+  text.split(/\r?\n/).filter((line) => line.trim().length > 0);
+
 export const isPec = (pecCriteria: string[]) =>
   !isNaN(parseFloat(pecCriteria[0])) && /^bp \d+(\.\d+)? \d+(\.\d+)?$/.test(pecCriteria[1]);
 
 export const readMetadata = (text?: string, chartMeta?: RpeMeta): MetadataEntry => {
   const readFromText = (text: string = '') => {
-    const lines = text.split(/\r?\n/);
+    const lines = getLines(text);
     const fields = ['Name', 'Song', 'Picture', 'Chart', 'Composer', 'Charter', 'Level'];
     if (
       lines[0] === '#' &&
@@ -85,7 +93,7 @@ export const readMetadata = (text?: string, chartMeta?: RpeMeta): MetadataEntry 
         level: info[6],
       };
     }
-    const [_header, ...rows] = text.split(/\r?\n/);
+    const [_header, ...rows] = getLines(text);
     const data = rows.map((row) => row.split(','));
     if (data.length > 0 && data[0].length >= 10) {
       let i = data.length - 1;
@@ -333,7 +341,7 @@ export const notify = (
     ?.forEach((e) => e.id.startsWith(id) && e.addEventListener('click', clickCallback));
 };
 
-export const alertError = (error: Error, message?: string) => {
+export const alertError = (error?: Error, message?: string) => {
   const type = error === null ? 'null' : error === undefined ? 'undefined' : error.constructor.name;
   let message2 = String(error);
   // let _detail = String(error);
@@ -351,7 +359,7 @@ export const alertError = (error: Error, message?: string) => {
     (e) =>
       e.id.startsWith(id) &&
       e.addEventListener('click', async () => {
-        const text = error.stack ?? `${error.name}: ${error.message}`;
+        const text = error?.stack ?? (error ? `${error.name}: ${error.message}` : errMessage);
         if (Capacitor.getPlatform() === 'web') navigator.clipboard.writeText(text);
         else await Clipboard.write({ string: text });
         Notiflix.Notify.success('Error copied to clipboard', {

@@ -9,9 +9,11 @@ import {
   NOTE_BASE_SIZE,
   NOTE_PRIORITIES,
 } from '../constants';
+import { isDebug } from '$lib/utils';
 
 export class LongNote extends GameObjects.Container {
   private _scene: Game;
+  private _index: number;
   private _data: Note;
   private _line: Line;
   private _xModifier: 1 | -1 = 1;
@@ -29,13 +31,16 @@ export class LongNote extends GameObjects.Container {
   private _beatTempJudged: number | undefined = undefined;
   private _isInJudgeWindow: boolean = false;
   private _lastInputBeat: number = 0;
-  private _hasTapInput: boolean = false;
+  private _isTapped: boolean = false;
   private _consumeTap: boolean = true;
 
-  constructor(scene: Game, data: Note, highlight: boolean = false) {
+  private _debug: GameObjects.Container | undefined = undefined;
+
+  constructor(scene: Game, data: Note, index: number, highlight: boolean = false) {
     super(scene);
 
     this._scene = scene;
+    this._index = index;
     this._data = data;
     this._yModifier = data.above ? -1 : 1;
     this._head = new GameObjects.Image(scene, 0, 0, `2-h${highlight ? '-hl' : ''}`);
@@ -59,6 +64,10 @@ export class LongNote extends GameObjects.Container {
     }
 
     this._data.yOffset *= this._data.speed; // bro's intercept depends on slope 👍👍👍
+
+    if (isDebug()) {
+      this._debug = new GameObjects.Container(scene);
+    }
   }
 
   update(beat: number, songTime: number, height: number, lineOpacity: number) {
@@ -122,7 +131,13 @@ export class LongNote extends GameObjects.Container {
       if (this._judgmentType !== JudgmentType.PASSED && beat >= this._data.endBeat)
         this._judgmentType = JudgmentType.PASSED;
       this._beatJudged = beat;
-      return;
+    }
+
+    if (this._debug) {
+      this._debug.setX(this.x);
+      this._debug.setY(this.floor);
+      this._debug.setRotation(this.rotation);
+      this._debug.setScale(this._scene.p(1.4 * NOTE_BASE_SIZE));
     }
   }
 
@@ -147,7 +162,7 @@ export class LongNote extends GameObjects.Container {
           this._line.addToJudgeWindow(this);
           this._isInJudgeWindow = true;
         }
-        if (!this._hasTapInput) return;
+        if (!this._isTapped) return;
         if (delta < -perfectJudgment) {
           this._scene.judgment.hold(JudgmentType.GOOD_EARLY, deltaSec, this);
         } else if (delta <= perfectJudgment) {
@@ -156,11 +171,11 @@ export class LongNote extends GameObjects.Container {
           this._scene.judgment.hold(JudgmentType.GOOD_LATE, deltaSec, this);
         }
         this._lastInputBeat = beat;
-        this._hasTapInput = false;
+        this._isTapped = false;
       }
     } else if (this._judgmentType === JudgmentType.UNJUDGED) {
       if (!this._scene.autoplay) {
-        const input = this._scene.pointer.findDrag(this);
+        const input = this._scene.keyboard.findDrag(this) || this._scene.pointer.findDrag(this);
         if (input) {
           this._lastInputBeat = beat;
         } else if (
@@ -261,12 +276,12 @@ export class LongNote extends GameObjects.Container {
     return this._hitTime;
   }
 
-  public get hasTapInput() {
-    return this._hasTapInput;
+  public get isTapped() {
+    return this._isTapped;
   }
 
-  public set hasTapInput(hasTapInput: boolean) {
-    this._hasTapInput = hasTapInput;
+  public set isTapped(isTapped: boolean) {
+    this._isTapped = isTapped;
   }
 
   public get tempJudgmentType() {
@@ -300,9 +315,28 @@ export class LongNote extends GameObjects.Container {
 
   public set line(line: Line) {
     this._line = line;
+
+    if (this._debug) {
+      line.debug?.add(
+        this._debug.add(this._scene.add.circle(0, 0, 32, 0xffff00).setOrigin(0.5)).add(
+          this._scene.add
+            .text(0, 72, `${this._line.index}/${this._index}`, {
+              fontFamily: 'Outfit',
+              fontSize: 80,
+              color: '#e2e2e2',
+              align: 'center',
+            })
+            .setOrigin(0.5),
+        ),
+      );
+    }
   }
 
   public get note() {
     return this._data;
+  }
+
+  public get floor() {
+    return Math.max(this._head.y, this._tail.y);
   }
 }

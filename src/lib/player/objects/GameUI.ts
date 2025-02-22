@@ -1,8 +1,9 @@
 import { GameObjects, Tweens, type Types } from 'phaser';
 import type { Game } from '../scenes/Game';
-import { pad } from '../utils';
+import { convertTime, pad } from '../utils';
 import { GameStatus } from '$lib/types';
 import { COMBO_TEXT, FONT_FAMILY } from '../constants';
+import { isDebug } from '$lib/utils';
 
 export class GameUI {
   private _scene: Game;
@@ -14,6 +15,9 @@ export class GameUI {
   private _songTitle: UIComponent;
   private _level: UIComponent;
   private _progressBar: ProgressBar;
+
+  private _debug: UIComponent | undefined = undefined;
+
   private _positions: number[][] = [
     [-650, 435],
     [0, 435],
@@ -22,6 +26,7 @@ export class GameUI {
     [650, 435],
     [-650, -435],
     [650, -435],
+    [0, -435],
   ];
   private _offsets: number[][] = [
     [0, 5],
@@ -31,8 +36,9 @@ export class GameUI {
     [0, 50],
     [0, 0],
     [0, 0],
+    [0, 0],
   ];
-  private _fontSizes: number[] = [0, 60, 20, 50, 25, 32, 32];
+  private _fontSizes: number[] = [0, 60, 20, 50, 25, 32, 32, 18];
   private _targets: (Button | UIComponent | ProgressBar)[];
   private _upperTargets: (Button | UIComponent | ProgressBar)[];
   private _lowerTargets: UIComponent[];
@@ -52,7 +58,7 @@ export class GameUI {
       8,
       'pause',
     );
-    this._pause.image.on('pointerup', () => {
+    this._pause.image.on('pointerdown', () => {
       if (scene.status !== GameStatus.PLAYING || !scene.song.isPlaying) return;
       const background = this._pause.background;
       if (background.alpha > 0.3) {
@@ -158,6 +164,23 @@ export class GameUI {
     );
 
     this._progressBar = new ProgressBar(this, 13);
+
+    if (isDebug()) {
+      this._debug = this.createComponent(
+        'debug',
+        scene.w(this._positions[7][0]),
+        scene.h(this._positions[7][1]),
+        this._scene.p(this._offsets[7][0]),
+        this._scene.p(this._offsets[7][1]),
+        0.5,
+        1,
+        Infinity,
+        '00:00.00 | 0.00',
+        scene.p(this._fontSizes[7]),
+      );
+      this._debug.text.setAlpha(0.7);
+    }
+
     this._upperTargets = [
       this._pause,
       this._combo,
@@ -166,8 +189,11 @@ export class GameUI {
       this._accuracy,
       this._progressBar,
     ];
-    this._lowerTargets = [this._songTitle, this._level];
+    this._lowerTargets = this._debug
+      ? [this._songTitle, this._level, this._debug]
+      : [this._songTitle, this._level];
     this._targets = [...this._upperTargets, ...this._lowerTargets];
+
     this.setVisible(false);
   }
 
@@ -187,6 +213,9 @@ export class GameUI {
     );
     this._songTitle.setText(this._scene.metadata.title ?? '');
     this._level.setText(this._scene.metadata.level ?? '');
+    this._debug?.setText(
+      `${convertTime(this._scene.realTimeSec)} | ${this._scene.beat.toFixed(2)}`,
+    );
 
     [
       this._pause,
@@ -196,13 +225,15 @@ export class GameUI {
       this._accuracy,
       this._songTitle,
       this._level,
+      this._debug,
     ].forEach((obj, i) => {
+      if (!obj) return;
       obj.container.setPosition(
         this._scene.w(this._positions[i][0]),
         this._scene.h(this._positions[i][1]),
       );
       if ('resize' in obj) {
-        obj.resize(this._scene.p(0.5));
+        obj.resize(this._scene.p(0.36));
       } else {
         obj.text.setFontSize(this._scene.p(this._fontSizes[i]));
         obj.text.setPosition(
@@ -361,7 +392,6 @@ export class GameUI {
     this._visible = visible;
     this._targets.forEach((obj) => {
       obj.setVisible(visible);
-      console.log(obj.name, visible);
     });
   }
 
@@ -660,7 +690,7 @@ class Button extends GameObjects.Container {
   isInvokeable(x: number, y: number, area: GameObjects.Arc = this._background) {
     const refX = area.x + area.width / 2;
     const refY = area.y + area.height / 2;
-    const radius = area.radius * 3;
+    const radius = area.radius * 2;
     return radius ** 2 > (x - refX) ** 2 + (y - refY) ** 2;
   }
 
