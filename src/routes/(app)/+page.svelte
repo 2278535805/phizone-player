@@ -98,7 +98,7 @@
   let selectedSong = -1;
   let selectedIllustration = -1;
   let selectedBundle = -1;
-  let currentBundle: ChartBundle;
+  let currentBundle: ChartBundle | undefined;
   let preferences: Preferences = {
     aspectRatio: null,
     backgroundBlur: 1,
@@ -179,12 +179,17 @@
               toggles[key as keyof typeof toggles] = rest[key as keyof typeof rest] as never;
             }
           }
+          if (!currentBundle) {
+            alert('No bundle is available.');
+            return;
+          }
           config = {
             resources: {
-              song: getUrl(audioFiles.find((file) => file.id === currentBundle.song)?.file) ?? '',
-              chart: getUrl(chartFiles.find((file) => file.id === currentBundle.chart)?.file) ?? '',
+              song: getUrl(audioFiles.find((file) => file.id === currentBundle!.song)?.file) ?? '',
+              chart:
+                getUrl(chartFiles.find((file) => file.id === currentBundle!.chart)?.file) ?? '',
               illustration:
-                imageFiles.find((file) => file.id === currentBundle.illustration)?.url ?? '',
+                imageFiles.find((file) => file.id === currentBundle!.illustration)?.url ?? '',
               assetNames: assetsIncluded.map((asset) => asset.file.name),
               assetTypes: assetsIncluded.map((asset) => asset.type),
               assets: assetsIncluded.map((asset) => getUrl(asset.file) ?? ''),
@@ -195,7 +200,7 @@
             ...toggles,
           };
         }
-        handleParams(config);
+        await handleParams(config);
       } else if (
         message.type === 'zipInput' ||
         message.type === 'fileInput' ||
@@ -235,8 +240,8 @@
     });
 
     if (IS_TAURI) {
-      onOpenUrl((urls) => {
-        handleRedirect(urls[0]);
+      onOpenUrl(async (urls) => {
+        await handleRedirect(urls[0]);
       });
       const handler = async (path: string) => {
         const data = await readFile(path);
@@ -276,11 +281,11 @@
       if (url) {
         const params = getParams(url, false);
         if (params) {
-          handleParams(params);
+          await handleParams(params);
           return;
         }
         const searchParams = new URL(url).searchParams;
-        handleParamFiles(searchParams);
+        await handleParamFiles(searchParams);
       }
 
       if (
@@ -329,7 +334,7 @@
           `${IS_ANDROID_OR_IOS ? `${base}/app` : 'phizone-player://'}${$page.url.search}`,
         );
       } else {
-        handleParamFiles($page.url.searchParams);
+        await handleParamFiles($page.url.searchParams);
       }
     }
   };
@@ -388,13 +393,13 @@
     }
   };
 
-  const handleRedirect = (url: string) => {
+  const handleRedirect = async (url: string) => {
     const params = getParams(url, false);
     if (params) {
-      handleParams(params);
+      await handleParams(params);
     } else {
       const searchParams = new URL(url).searchParams;
-      handleParamFiles(searchParams);
+      await handleParamFiles(searchParams);
     }
   };
 
@@ -779,7 +784,7 @@
     return (size / Math.pow(1024, i)).toFixed(2) + ' ' + ['B', 'KiB', 'MiB', 'GiB', 'TiB'][i];
   };
 
-  const handleParams = (params: Config) => {
+  const handleParams = async (params: Config) => {
     localStorage.setItem('player', JSON.stringify(params));
     preferences = params.preferences;
     recorderOptions = params.recorderOptions;
@@ -797,9 +802,15 @@
       payload: {
         metadata: params.metadata,
         resources: {
-          song: audioFiles.find((file) => file.id === currentBundle.song)!.file,
-          chart: chartFiles.find((file) => file.id === currentBundle.chart)!.file,
-          illustration: imageFiles.find((file) => file.id === currentBundle.illustration)!.file,
+          song:
+            audioFiles.find((file) => file.id === currentBundle?.song)?.file ??
+            (await download(params.resources.song)),
+          chart:
+            chartFiles.find((file) => file.id === currentBundle?.chart)?.file ??
+            (await download(params.resources.chart)),
+          illustration:
+            imageFiles.find((file) => file.id === currentBundle?.illustration)?.file ??
+            (await download(params.resources.illustration)),
           assets: params.resources.assetNames.map((name) => {
             const asset = assets.find((asset) => asset.file.name === name)!;
             return {
@@ -916,7 +927,7 @@
   <button
     type="button"
     class="inline-flex justify-center items-center gap-x-3 text-center bg-gradient-to-tl from-blue-500 via-violet-500 to-fuchsia-500 dark:from-blue-700 dark:via-violet-700 dark:to-fuchsia-700 text-white text-sm font-medium rounded-md focus:outline-none py-3 px-4 transition-all duration-300 bg-size-200 bg-pos-0 hover:bg-pos-100"
-    on:click={() => {
+    onclick={() => {
       showCollapse = !showCollapse;
     }}
   >
@@ -960,7 +971,7 @@
               id="remember-app-preference"
               name="remember-app-preference"
               type="checkbox"
-              class="transition border-gray-200 rounded text-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-base-100 dark:border-neutral-700 dark:checked:bg-blue-500 dark:checked:border-blue-500 dark:focus:ring-offset-gray-800"
+              class="form-checkbox transition border-gray-200 rounded text-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-base-100 dark:border-neutral-700 dark:checked:bg-blue-500 dark:checked:border-blue-500 dark:focus:ring-offset-gray-800"
               aria-describedby="remember-app-preference-description"
               bind:checked={modalMem}
             />
@@ -981,7 +992,7 @@
           <form method="dialog" class="gap-3 flex justify-center">
             <button
               class="inline-flex justify-center items-center gap-x-3 text-center bg-gradient-to-tl from-blue-500 via-violet-500 to-fuchsia-500 dark:from-blue-700 dark:via-violet-700 dark:to-fuchsia-700 text-white text-sm font-medium rounded-md focus:outline-none py-3 px-4 transition-all duration-300 bg-size-200 bg-pos-0 hover:bg-pos-100"
-              on:click={() => {
+              onclick={() => {
                 window.open(
                   `${IS_ANDROID_OR_IOS ? `${base}/app` : 'phizone-player://'}${$page.url.search}`,
                 );
@@ -995,8 +1006,8 @@
             </button>
             <button
               class="py-3 px-4 inline-flex items-center gap-x-2 text-sm font-medium rounded-lg border border-gray-200 bg-white text-gray-800 shadow-sm hover:bg-gray-100 focus:outline-none focus:bg-gray-100 disabled:opacity-50 disabled:pointer-events-none dark:bg-neutral-800 dark:border-neutral-700 dark:text-white dark:hover:bg-neutral-700 dark:focus:bg-neutral-700 transition"
-              on:click={() => {
-                handleParamFiles($page.url.searchParams);
+              onclick={async () => {
+                await handleParamFiles($page.url.searchParams);
                 if (modalMem) {
                   toggles.inApp = 2;
                   localStorage.setItem('toggles', JSON.stringify(toggles));
@@ -1045,7 +1056,7 @@
             ? null
             : '.pez,.pec,.yml,.yaml,.shader,.glsl,.frag,.fsh,.fs,application/zip,application/json,image/*,video/*,audio/*,text/*'}
           class="file-input file-input-bordered w-full max-w-xs file:btn dark:file:btn-neutral file:no-animation border-gray-200 rounded-lg transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 dark:border-neutral-700 dark:text-neutral-300 dark:focus:ring-neutral-600"
-          on:input={async (e) => {
+          oninput={async (e) => {
             const fileList = e.currentTarget.files;
             if (!fileList || fileList.length === 0) return;
             const files = Array.from(fileList);
@@ -1068,7 +1079,7 @@
             type="file"
             multiple
             class="file-input file-input-bordered w-full max-w-xs file:btn dark:file:btn-neutral file:no-animation border-gray-200 rounded-lg transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 dark:border-neutral-700 dark:text-neutral-300 dark:focus:ring-neutral-600"
-            on:input={async () =>
+            oninput={async () =>
               await handleFiles(directoryInput.files ? Array.from(directoryInput.files) : null)}
           />
         </label>
@@ -1117,38 +1128,67 @@
       <div class="flex md:w-2/3 flex-col gap-3">
         <div class="carousel-with-bar rounded-box w-fit">
           {#key chartBundles}
-            {#each chartBundles as bundle}
-              <button
-                class="carousel-item relative transition hover:brightness-75"
-                on:click={() => {
-                  currentBundle = bundle;
-                  selectedBundle = bundle.id;
-                  selectedChart = bundle.chart;
-                  selectedSong = bundle.song;
-                  selectedIllustration = bundle.illustration;
-                }}
-              >
-                <img
-                  class="h-48 transition"
-                  src={imageFiles.find((file) => file.id === bundle.illustration)?.url}
-                  class:brightness-50={selectedBundle === bundle.id}
-                  alt="Illustration"
-                />
-                <div
-                  class="absolute inset-0 opacity-0 transition flex justify-center items-center gap-2"
-                  class:opacity-100={selectedBundle === bundle.id}
+            {#each chartBundles as bundle, i}
+              <div class="carousel-item relative">
+                <button
+                  class="transition hover:brightness-75"
+                  onclick={() => {
+                    currentBundle = bundle;
+                    selectedBundle = bundle.id;
+                    selectedChart = bundle.chart;
+                    selectedSong = bundle.song;
+                    selectedIllustration = bundle.illustration;
+                  }}
                 >
-                  <span class="btn btn-xs btn-circle btn-success no-animation">
-                    <i class="fa-solid fa-check"></i>
-                  </span>
-                  <p class="text-success">SELECTED</p>
-                </div>
-              </button>
+                  <img
+                    class="h-48 transition"
+                    src={imageFiles.find((file) => file.id === bundle.illustration)?.url}
+                    class:brightness-50={selectedBundle === bundle.id}
+                    alt="Illustration"
+                  />
+                  <div
+                    class="absolute inset-0 opacity-0 transition flex justify-center items-center gap-2"
+                    class:opacity-100={selectedBundle === bundle.id}
+                  >
+                    <span class="btn btn-xs btn-circle btn-success no-animation">
+                      <i class="fa-solid fa-check"></i>
+                    </span>
+                    <p class="text-success">SELECTED</p>
+                  </div>
+                </button>
+                {#if chartBundles.length > 1}
+                  <button
+                    class="absolute bottom-1 right-1 btn btn-sm btn-circle btn-outline btn-error backdrop-blur-xl"
+                    aria-label="Delete"
+                    onclick={() => {
+                      chartBundles = chartBundles.filter((b) => b.id !== bundle.id);
+                      if (selectedBundle === bundle.id) {
+                        currentBundle = chartBundles[0];
+                        selectedBundle = chartBundles[0].id;
+                        selectedChart = chartBundles[0].chart;
+                        selectedSong = chartBundles[0].song;
+                        selectedIllustration = chartBundles[0].illustration;
+                      }
+                      if (chartBundles.every((b) => b.chart !== bundle.chart)) {
+                        chartFiles = chartFiles.filter((file) => file.id !== bundle.chart);
+                      }
+                      if (chartBundles.every((b) => b.song !== bundle.song)) {
+                        audioFiles = audioFiles.filter((file) => file.id !== bundle.song);
+                      }
+                      if (chartBundles.every((b) => b.illustration !== bundle.illustration)) {
+                        imageFiles = imageFiles.filter((file) => file.id !== bundle.illustration);
+                      }
+                    }}
+                  >
+                    <i class="fa-solid fa-trash-can"></i>
+                  </button>
+                {/if}
+              </div>
             {/each}
           {/key}
           <button
             class="carousel-item relative w-48 h-48 bg-neutral-200 dark:bg-neutral transition hover:brightness-75"
-            on:click={async () => {
+            onclick={async () => {
               const chart = chartFiles.find((file) => file.id === selectedChart);
               const song = audioFiles.find((file) => file.id === selectedSong);
               const illustration = imageFiles.find((file) => file.id === selectedIllustration);
@@ -1158,7 +1198,15 @@
                   song,
                   illustration,
                   undefined,
-                  currentBundle.metadata,
+                  currentBundle?.metadata ?? {
+                    title: '',
+                    composer: '',
+                    charter: '',
+                    illustrator: '',
+                    levelType: 2,
+                    level: '',
+                    difficulty: null,
+                  },
                 );
                 if (!bundle) return;
                 currentBundle = bundle;
@@ -1177,7 +1225,7 @@
             </div>
           </button>
         </div>
-        {#if selectedBundle !== -1}
+        {#if selectedBundle !== -1 && currentBundle}
           <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div>
               <span class="block text-sm font-medium mb-1 dark:text-white">Title</span>
@@ -1185,7 +1233,7 @@
                 <input
                   type="text"
                   bind:value={currentBundle.metadata.title}
-                  class="py-3 px-4 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
+                  class="form-input py-3 px-4 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
                 />
               </div>
             </div>
@@ -1195,7 +1243,7 @@
                 <input
                   type="text"
                   bind:value={currentBundle.metadata.composer}
-                  class="py-3 px-4 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
+                  class="form-input py-3 px-4 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
                 />
               </div>
             </div>
@@ -1207,7 +1255,7 @@
                 <input
                   type="text"
                   bind:value={currentBundle.metadata.illustrator}
-                  class="py-3 px-4 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
+                  class="form-input py-3 px-4 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
                 />
               </div>
             </div>
@@ -1217,7 +1265,7 @@
                 <input
                   type="text"
                   bind:value={currentBundle.metadata.charter}
-                  class="py-3 px-4 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
+                  class="form-input py-3 px-4 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
                 />
               </div>
             </div>
@@ -1226,7 +1274,7 @@
               <div class="relative">
                 <select
                   bind:value={currentBundle.metadata.levelType}
-                  class="py-3 px-4 pe-9 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
+                  class="form-select py-3 px-4 pe-9 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
                 >
                   {#each ['EZ', 'HD', 'IN', 'AT', 'SP'] as levelType, i}
                     <option value={i} selected={currentBundle.metadata.levelType === i}>
@@ -1242,7 +1290,7 @@
                 <input
                   type="text"
                   bind:value={currentBundle.metadata.level}
-                  class="py-3 px-4 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
+                  class="form-input py-3 px-4 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
                 />
               </div>
             </div>
@@ -1296,7 +1344,7 @@
                         <div class="relative">
                           <select
                             bind:value={asset.type}
-                            class="py-1 px-2 pe-8 block border-gray-200 rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
+                            class="form-select py-1 px-2 pe-8 block border-gray-200 rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
                           >
                             {#each ['Image', 'Audio', 'Video', 'Config', 'Shader', 'Other'] as assetType, i}
                               <option value={i} selected={asset.type === i}>
@@ -1316,7 +1364,7 @@
                         <button
                           type="button"
                           class="inline-flex items-center gap-x-2 text-sm font-semibold rounded-lg transition border border-transparent text-blue-500 hover:text-blue-800 focus:outline-none focus:text-blue-800 disabled:opacity-50 disabled:pointer-events-none dark:text-blue-500 dark:hover:text-blue-400 dark:focus:text-blue-400"
-                          on:click={() => {
+                          onclick={() => {
                             asset.included = !asset.included;
                           }}
                         >
@@ -1325,7 +1373,7 @@
                         <button
                           type="button"
                           class="inline-flex items-center gap-x-2 text-sm font-semibold rounded-lg transition border border-transparent text-blue-500 hover:text-blue-800 focus:outline-none focus:text-blue-800 disabled:opacity-50 disabled:pointer-events-none dark:text-blue-500 dark:hover:text-blue-400 dark:focus:text-blue-400"
-                          on:click={() => {
+                          onclick={() => {
                             assets = assets.filter((a) => a.id !== asset.id);
                           }}
                         >
@@ -1343,7 +1391,7 @@
       <div class="flex md:w-1/3 flex-col gap-2">
         <div class="relative">
           <select
-            class="peer p-4 pe-9 block w-full border-gray-200 rounded-lg transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:focus:ring-neutral-600
+            class="form-select peer p-4 pe-9 block w-full border-gray-200 rounded-lg transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:focus:ring-neutral-600
               focus:pt-6
               focus:pb-2
               [&:not(:placeholder-shown)]:pt-6
@@ -1351,9 +1399,9 @@
               autofill:pt-6
               autofill:pb-2"
             value={selectedChart}
-            on:input={(e) => {
+            oninput={(e) => {
               selectedChart = parseInt(e.currentTarget.value);
-              currentBundle.chart = selectedChart;
+              if (currentBundle) currentBundle.chart = selectedChart;
               chartBundles = chartBundles;
             }}
           >
@@ -1377,7 +1425,7 @@
         </div>
         <div class="relative">
           <select
-            class="peer p-4 pe-9 block w-full border-gray-200 rounded-lg transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:focus:ring-neutral-600
+            class="form-select peer p-4 pe-9 block w-full border-gray-200 rounded-lg transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:focus:ring-neutral-600
               focus:pt-6
               focus:pb-2
               [&:not(:placeholder-shown)]:pt-6
@@ -1385,9 +1433,9 @@
               autofill:pt-6
               autofill:pb-2"
             value={selectedSong}
-            on:input={(e) => {
+            oninput={(e) => {
               selectedSong = parseInt(e.currentTarget.value);
-              currentBundle.song = selectedSong;
+              if (currentBundle) currentBundle.song = selectedSong;
               chartBundles = chartBundles;
             }}
           >
@@ -1411,7 +1459,7 @@
         </div>
         <div class="relative">
           <select
-            class="peer p-4 pe-9 block w-full border-gray-200 rounded-lg transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:focus:ring-neutral-600
+            class="form-select peer p-4 pe-9 block w-full border-gray-200 rounded-lg transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:focus:ring-neutral-600
               focus:pt-6
               focus:pb-2
               [&:not(:placeholder-shown)]:pt-6
@@ -1419,9 +1467,9 @@
               autofill:pt-6
               autofill:pb-2"
             value={selectedIllustration}
-            on:input={(e) => {
+            oninput={(e) => {
               selectedIllustration = parseInt(e.currentTarget.value);
-              currentBundle.illustration = selectedIllustration;
+              if (currentBundle) currentBundle.illustration = selectedIllustration;
               chartBundles = chartBundles;
             }}
           >
@@ -1450,10 +1498,10 @@
                 id="autoplay"
                 name="autoplay"
                 type="checkbox"
-                class="transition border-gray-200 rounded text-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-base-100 dark:border-neutral-700 dark:checked:bg-blue-500 dark:checked:border-blue-500 dark:focus:ring-offset-gray-800"
+                class="form-checkbox transition border-gray-200 rounded text-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-base-100 dark:border-neutral-700 dark:checked:bg-blue-500 dark:checked:border-blue-500 dark:focus:ring-offset-gray-800"
                 aria-describedby="autoplay-description"
                 checked={toggles.autoplay}
-                on:input={(e) => {
+                oninput={(e) => {
                   toggles.autoplay = e.currentTarget.checked;
                   if (toggles.autoplay) {
                     toggles.practice = false;
@@ -1481,7 +1529,7 @@
                 id="adjust-offset"
                 name="adjust-offset"
                 type="checkbox"
-                class="transition border-gray-200 rounded text-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-base-100 dark:border-neutral-700 dark:checked:bg-blue-500 dark:checked:border-blue-500 dark:focus:ring-offset-gray-800"
+                class="form-checkbox transition border-gray-200 rounded text-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-base-100 dark:border-neutral-700 dark:checked:bg-blue-500 dark:checked:border-blue-500 dark:focus:ring-offset-gray-800"
                 aria-describedby="adjust-offset-description"
                 bind:checked={toggles.adjustOffset}
                 disabled={!toggles.autoplay}
@@ -1506,7 +1554,7 @@
                 id="practice"
                 name="practice"
                 type="checkbox"
-                class="transition border-gray-200 rounded text-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-base-100 dark:border-neutral-700 dark:checked:bg-blue-500 dark:checked:border-blue-500 dark:focus:ring-offset-gray-800"
+                class="form-checkbox transition border-gray-200 rounded text-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-base-100 dark:border-neutral-700 dark:checked:bg-blue-500 dark:checked:border-blue-500 dark:focus:ring-offset-gray-800"
                 aria-describedby="practice-description"
                 bind:checked={toggles.practice}
                 disabled={toggles.autoplay}
@@ -1531,7 +1579,7 @@
                   id="record"
                   name="record"
                   type="checkbox"
-                  class="transition border-gray-200 rounded text-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-base-100 dark:border-neutral-700 dark:checked:bg-blue-500 dark:checked:border-blue-500 dark:focus:ring-offset-gray-800"
+                  class="form-checkbox transition border-gray-200 rounded text-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-base-100 dark:border-neutral-700 dark:checked:bg-blue-500 dark:checked:border-blue-500 dark:focus:ring-offset-gray-800"
                   aria-describedby="record-description"
                   bind:checked={toggles.record}
                 />
@@ -1539,7 +1587,7 @@
               <label for="record" class="ms-3">
                 <button
                   class="flex items-center gap-1 text-sm font-semibold text-gray-800 dark:text-neutral-300"
-                  on:click={() => {
+                  onclick={() => {
                     showRecorderCollapse = !showRecorderCollapse;
                   }}
                 >
@@ -1577,7 +1625,7 @@
                       <input
                         type="number"
                         bind:value={recorderOptions.frameRate}
-                        class="py-3 px-4 pe-12 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
+                        class="form-input py-3 px-4 pe-12 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
                       />
                       <div
                         class="absolute inset-y-0 end-0 flex items-center pointer-events-none z-20 pe-4"
@@ -1593,14 +1641,14 @@
                       </span>
                       <input
                         type="checkbox"
-                        class="transition border-gray-200 rounded text-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-base-100 dark:border-neutral-700 dark:checked:bg-blue-500 dark:checked:border-blue-500 dark:focus:ring-offset-gray-800"
+                        class="form-checkbox transition border-gray-200 rounded text-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-base-100 dark:border-neutral-700 dark:checked:bg-blue-500 dark:checked:border-blue-500 dark:focus:ring-offset-gray-800"
                         bind:checked={overrideResolution}
                       />
                     </div>
                     <div class="flex rounded-lg shadow-sm">
                       <input
                         type="number"
-                        class="py-3 px-4 block w-full border-gray-200 shadow-sm -ms-px first:rounded-s-lg mt-0 first:ms-0 first:rounded-se-none last:rounded-es-none last:rounded-e-lg text-sm relative focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
+                        class="form-input py-3 px-4 block w-full border-gray-200 shadow-sm -ms-px first:rounded-s-lg mt-0 first:ms-0 first:rounded-se-none last:rounded-es-none last:rounded-e-lg text-sm relative focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
                         disabled={!overrideResolution}
                         bind:value={recorderResolutionWidth}
                       />
@@ -1612,7 +1660,7 @@
                       </span>
                       <input
                         type="number"
-                        class="py-3 px-4 block w-full border-gray-200 shadow-sm -ms-px first:rounded-s-lg mt-0 first:ms-0 first:rounded-se-none last:rounded-es-none last:rounded-e-lg text-sm relative focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
+                        class="form-input py-3 px-4 block w-full border-gray-200 shadow-sm -ms-px first:rounded-s-lg mt-0 first:ms-0 first:rounded-se-none last:rounded-es-none last:rounded-e-lg text-sm relative focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
                         disabled={!overrideResolution}
                         bind:value={recorderResolutionHeight}
                       />
@@ -1627,12 +1675,12 @@
                         type="text"
                         value="webm"
                         disabled
-                        class="py-3 px-4 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
+                        class="form-input py-3 px-4 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
                       />
                       <!-- <input
                             type="text"
                             bind:value={recorderOptions.outputFormat}
-                            class="py-3 px-4 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
+                            class="form-input py-3 px-4 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
                           /> -->
                     </div>
                   </div>
@@ -1644,7 +1692,7 @@
                       <input
                         type="number"
                         bind:value={recorderOptions.videoBitrate}
-                        class="py-3 px-4 pe-14 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
+                        class="form-input py-3 px-4 pe-14 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
                       />
                       <div
                         class="absolute inset-y-0 end-0 flex items-center pointer-events-none z-20 pe-4"
@@ -1661,7 +1709,7 @@
                         min={0}
                         step={0.1}
                         bind:value={recorderOptions.endingLoopsToRecord}
-                        class="py-3 px-4 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
+                        class="form-input py-3 px-4 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
                       />
                     </div>
                   </div>
@@ -1673,7 +1721,7 @@
                       <input
                         type="number"
                         bind:value={recorderOptions.audioBitrate}
-                        class="py-3 px-4 pe-14 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
+                        class="form-input py-3 px-4 pe-14 block w-full border-gray-200 shadow-sm rounded-lg text-sm focus:z-10 transition hover:border-blue-500 hover:ring-blue-500 focus:border-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none bg-base-100 dark:border-neutral-700 dark:text-neutral-300 dark:placeholder-neutral-500 dark:focus:ring-neutral-600"
                       />
                       <div
                         class="absolute inset-y-0 end-0 flex items-center pointer-events-none z-20 pe-4"
@@ -1692,7 +1740,7 @@
                 id="autostart"
                 name="autostart"
                 type="checkbox"
-                class="transition border-gray-200 rounded text-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-base-100 dark:border-neutral-700 dark:checked:bg-blue-500 dark:checked:border-blue-500 dark:focus:ring-offset-gray-800"
+                class="form-checkbox transition border-gray-200 rounded text-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-base-100 dark:border-neutral-700 dark:checked:bg-blue-500 dark:checked:border-blue-500 dark:focus:ring-offset-gray-800"
                 aria-describedby="autostart-description"
                 bind:checked={toggles.autostart}
               />
@@ -1716,7 +1764,7 @@
                   id="newtab"
                   name="newtab"
                   type="checkbox"
-                  class="transition border-gray-200 rounded text-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-base-100 dark:border-neutral-700 dark:checked:bg-blue-500 dark:checked:border-blue-500 dark:focus:ring-offset-gray-800"
+                  class="form-checkbox transition border-gray-200 rounded text-blue-500 focus:ring-blue-500 disabled:opacity-50 disabled:pointer-events-none dark:bg-base-100 dark:border-neutral-700 dark:checked:bg-blue-500 dark:checked:border-blue-500 dark:focus:ring-offset-gray-800"
                   aria-describedby="newtab-description"
                   bind:checked={toggles.newTab}
                 />
@@ -1749,7 +1797,7 @@
           <PreferencesModal bind:preferences class="w-1/2" />
           <button
             class="w-1/2 inline-flex justify-center items-center gap-x-3 text-center bg-gradient-to-tl from-blue-500 via-violet-500 to-fuchsia-500 dark:from-blue-700 dark:via-violet-700 dark:to-fuchsia-700 text-white text-sm font-medium rounded-md focus:outline-none py-3 px-4 transition-all duration-300 bg-size-200 bg-pos-0 hover:bg-pos-100"
-            on:click={() => {
+            onclick={() => {
               localStorage.setItem('preferences', JSON.stringify(preferences));
               localStorage.setItem('toggles', JSON.stringify(toggles));
               if (toggles.record) {
@@ -1763,12 +1811,16 @@
                   recorderOptions.overrideResolution = null;
                 }
               }
+              if (!currentBundle) {
+                alert('No bundle is available.');
+                return;
+              }
               const assetsIncluded = assets.filter((asset) => asset.included);
               const params = queryString.stringify(
                 {
-                  song: getUrl(audioFiles.find((file) => file.id === currentBundle.song)?.file),
-                  chart: getUrl(chartFiles.find((file) => file.id === currentBundle.chart)?.file),
-                  illustration: imageFiles.find((file) => file.id === currentBundle.illustration)
+                  song: getUrl(audioFiles.find((file) => file.id === currentBundle!.song)?.file),
+                  chart: getUrl(chartFiles.find((file) => file.id === currentBundle!.chart)?.file),
+                  illustration: imageFiles.find((file) => file.id === currentBundle!.illustration)
                     ?.url,
                   assetNames: assetsIncluded.map((asset) => asset.file.name),
                   assetTypes: assetsIncluded.map((asset) => asset.type),
@@ -1792,12 +1844,13 @@
                 const config = {
                   resources: {
                     song:
-                      getUrl(audioFiles.find((file) => file.id === currentBundle.song)?.file) ?? '',
+                      getUrl(audioFiles.find((file) => file.id === currentBundle!.song)?.file) ??
+                      '',
                     chart:
-                      getUrl(chartFiles.find((file) => file.id === currentBundle.chart)?.file) ??
+                      getUrl(chartFiles.find((file) => file.id === currentBundle!.chart)?.file) ??
                       '',
                     illustration:
-                      imageFiles.find((file) => file.id === currentBundle.illustration)?.url ?? '',
+                      imageFiles.find((file) => file.id === currentBundle!.illustration)?.url ?? '',
                     assetNames: assetsIncluded.map((asset) => asset.file.name),
                     assetTypes: assetsIncluded.map((asset) => asset.type),
                     assets: assetsIncluded.map((asset) => getUrl(asset.file) ?? ''),
