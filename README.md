@@ -225,8 +225,8 @@ Notice that there are two events that share the same shader code. This is a work
 | Keyboard input                                    | 0.1.2   |                                                                                                                                   | ✅ Done             | 键盘输入                         |
 | Customizable resource pack                        | 0.1.3   |                                                                                                                                   |                     | 可自定义资源包                   |
 | Local chart bundle storage                        | 0.1.4   |                                                                                                                                   |                     | 本地谱包存储                     |
-| Alignment with official/RPE constants             | 0.1.5   | Hold tolerances, texture size units, etc.                                                                                         |                     | 官/RPE 常数对齐                  |
-| Optimization                                      | 0.1.5   |                                                                                                                                   |                     | 优化                             |
+| Alignment with official/RPE constants             | 0.1.5   | Hold tolerances, texture size units, etc.                                                                                         | 🚧 Working          | 官/RPE 常数对齐                  |
+| Optimization                                      | 0.1.5   |                                                                                                                                   | 🚧 Working          | 优化                             |
 | Streaming mode                                    | 0.1.6   |                                                                                                                                   | ⏳ Postponed        | 流转模式                         |
 | PhiZone integration                               | 0.2.0   |                                                                                                                                   |                     | PhiZone 集成                     |
 | Masking lines                                     | 0.2.1   | Polygon-shaped masks applied to notes (or optionally lines), defined by one or several lines (masking lines) and the screen edges |                     | 遮罩线                           |
@@ -240,7 +240,7 @@ Notice that there are two events that share the same shader code. This is a work
 <sup>1</sup> Support for fragment shaders is partial, due to WebGL relying on an older version of GLSL.  
 <sup>2</sup> The app currently shows up for `application/zip` and `application/octet-stream` files on Android and any type of files on iOS/iPadOS. This is not the desired behavior and is subject to change.
 
-A version is reached whenever at least one feature from this version is marked as `🚧 Working`, and all features from the previous versions are marked as `✅ Done`. A version is released only when all features from this version and the previous versions are marked as `✅ Done`.
+A version is reached when at least one feature from the current or future versions is marked as `🚧 Working` and all features from the previous versions are marked as `✅ Done`. A version is released only when all features from both the current and preceding versions are marked as `✅ Done`.
 
 ## Assets
 

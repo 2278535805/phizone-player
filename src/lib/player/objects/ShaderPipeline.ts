@@ -21,7 +21,6 @@ export class ShaderPipeline extends Renderer.WebGL.Pipelines.PostFXPipeline {
   private _animators: VariableAnimator[] = [];
   private _targetsCollected: boolean = false;
   private _isLoaded: boolean = false;
-  // private _samplerMap: { [key: number]: string } = {};
 
   constructor(
     game: Phaser.Game,
@@ -85,7 +84,12 @@ export class ShaderPipeline extends Renderer.WebGL.Pipelines.PostFXPipeline {
         }
       });
     }
-    this.bootFX();
+    try {
+      this.bootFX();
+    } catch (e) {
+      console.error(e);
+      alert(`An error occurred whilst loading Shader ${this._data.shader}.`);
+    }
   }
 
   onBoot(): void {

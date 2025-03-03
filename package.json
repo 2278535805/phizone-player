@@ -1,7 +1,7 @@
 {
   "name": "player",
   "description": "An HTML5 Phigros chart player/simulator based on Phaser.",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/PhiZone/player.git"
@@ -109,6 +109,7 @@
     "phaser3-rex-plugins": "^1.80.12",
     "query-string": "^9.1.1",
     "send-intent": "^6.0.3",
+    "stats-js": "^1.0.1",
     "wavesurfer.js": "^7.8.16"
   },
   "resolutions": {
