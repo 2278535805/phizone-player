@@ -81,7 +81,7 @@ pub fn convert_audio(app: AppHandle, input: String, output: String) -> Result<()
                 "-i",
                 &input,
                 "-ar",
-                "48000",
+                "44100",
                 "-c:a",
                 "pcm_f32le",
                 "-y",
